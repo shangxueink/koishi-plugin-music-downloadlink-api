@@ -1,0 +1,22 @@
+{
+  "name": "koishi-plugin-music-downloadlink-api",
+  "description": "search and provide song download links for QQ Music and NetEase Music platform",
+  "version": "1.1.0",
+  "main": "lib/index.js",
+  "typings": "lib/index.d.ts",
+  "files": [
+    "lib",
+    "dist"
+  ],
+  "license": "MIT",
+  "scripts": {},
+  "keywords": [
+    "chatbot",
+    "koishi",
+    "plugin",
+    "music"
+  ],
+  "peerDependencies": {
+    "koishi": "^4.16.6"
+  }
+}
