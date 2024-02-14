@@ -114,6 +114,8 @@ qq-music-桑帛云   <歌曲名称>
 
 ## 更新日志
 
+- **1.1.1**   与Music-downloadvoice-api插件对齐，星之阁的QQ平台点歌使用官方接口
+
 - **1.1.0**   与Music-downloadvoice-api插件对齐，使用ts重构。（好耶
 
 - **0.1.5**   修复logger定义问题。

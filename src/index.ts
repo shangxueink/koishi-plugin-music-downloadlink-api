@@ -1,4 +1,4 @@
-import { Context, Schema, Quester, h } from 'koishi'
+import { Context, Schema, Quester, h, isNullable } from 'koishi'
 import Puppeteer from 'koishi-plugin-puppeteer'
 
 export const name = 'music-downloadlink-api'
@@ -44,7 +44,7 @@ interface SongData {
   subtitle?: string
   name: string
   album: string
-  pay: string
+  pay?: string
   song_type?: string
   type?: number
   songid?: number
@@ -55,38 +55,13 @@ interface SongData {
   interval?: string
   size?: string
   kbps?: string
-  cover: string
+  cover?: string
   songurl: string
-  src: string
+  src?: string
   id?: number
 }
 
-interface SearchResponse {
-  code: number
-  msg: string
-  data: SongData[] | SongData
-}
 
-interface SearchParams {
-  name?: string
-  n?: number
-  songid?: number
-}
-
-type Platform = 'QQ Music' | 'NetEase Music'
-
-async function search(http: Quester, platform: Platform, params: SearchParams) {
-  let apiBase = 'https://api.xingzhige.com/API/QQmusicVIP'
-  if (platform === 'NetEase Music') apiBase = 'https://api.xingzhige.com/API/NetEase_CloudMusic_new'
-  return await http.get<SearchResponse>(apiBase, {
-      params
-  })
-}
-
-function formatSongList(data: SongData[], platform: Platform, startIndex: number) {
-  const formattedList = data.map((song, index) => `${index + startIndex + 1}. ${song.songname} -- ${song.name}`).join('<br />')
-  return `<b>${platform}</b>:<br />${formattedList}`
-}
 interface Song {
   song: string;
   singer: string;
@@ -96,6 +71,84 @@ interface Song {
   url: string;
 }
 
+interface SearchXZGResponse {
+  code: number
+  msg: string
+  data: SongData[] | SongData
+}
+
+interface SearchXZGParams {
+  name?: string
+  n?: number
+  songid?: number
+  pagesize?: number
+  max?: number
+}
+interface SearchQQResponse {
+  code: number
+  ts: number
+  start_ts: number
+  traceid: string
+  request: {
+      code: number
+      data: {
+          body: {
+              item_song: {
+                  album: {
+                      name: string
+                  }
+                  name: string
+                  id: number
+                  mid: string
+                  singer: {
+                      name: string
+                  }[]
+              }[]
+          },
+          code: number
+          feedbackURL: string
+          meta: unknown
+          ver: number
+      }
+  }
+}
+type Platform = 'QQ Music' | 'NetEase Music'
+
+async function searchXZG(http: Quester, platform: Platform, params: SearchXZGParams) {
+  let apiBase = 'https://api.xingzhige.com/API/QQmusicVIP'
+  if (platform === 'NetEase Music') apiBase = 'https://api.xingzhige.com/API/NetEase_CloudMusic_new'
+  return await http.get<SearchXZGResponse>(apiBase, { params })
+}
+
+function formatSongList(data: SongData[], platform: Platform, startIndex: number) {
+  const formattedList = data.map((song, index) => `${index + startIndex + 1}. ${song.songname} -- ${song.name}`).join('<br />')
+  return `<b>${platform}</b>:<br />${formattedList}`
+}
+
+async function searchQQ(http: Quester, query: string) {
+  return await http.post<SearchQQResponse>('https://u.y.qq.com/cgi-bin/musicu.fcg', {
+      comm: {
+          ct: 11,
+          cv: '1929'
+      },
+      request: {
+          module: 'music.search.SearchCgiService',
+          method: 'DoSearchForQQMusicLite',
+          param: {
+              search_id: '83397431192690042',
+              remoteplace: 'search.android.keyboard',
+              query,
+              search_type: 0,
+              num_per_page: 10,
+              page_num: 1,
+              highlight: 1,
+              nqc_flag: 0,
+              page_id: 1,
+              grp: 1
+          }
+      }
+  })
+}
 
 async function generateSongListImage(pptr: Puppeteer, listText: string, cfg: Config) {
   const textBrightness = cfg.darkMode ? 255 : 0
@@ -263,76 +316,104 @@ export function apply(ctx: Context, cfg: Config) {
 
   
 
-  ctx.command('music-downloadlink-api/qq-music-星之阁 [...keywords]')
-      .action(async ({ session }, keyword) => {
-          if (!keyword) return '请输入歌曲相关信息。'
+    ctx.command('music-downloadlink-api/music-downloadlink-星之阁 <keyword:text>', '搜索歌曲并生成语音')
+        .alias('qq-music-星之阁')
+        .action(async ({ session }, keyword) => {
+            if (!keyword) return '请输入歌曲相关信息。'
 
-          let qq: SearchResponse
-          try {
-              qq = await search(ctx.http, 'QQ Music', { name: keyword })
-          } catch (e) {
-              logger.warn('获取QQ音乐数据时发生错误', e)
-          }
+            let qq: SearchXZGResponse, netease: SearchXZGResponse
+            try {
+                const { code, request } = await searchQQ(ctx.http, keyword)
+                const item = request?.data?.body?.item_song
+                qq = {
+                    code,
+                    msg: '',
+                    data: Array.isArray(item) ? item.map(v => {
+                        return {
+                            songname: v.name,
+                            album: v.album.name,
+                            songid: v.id,
+                            songurl: `https://y.qq.com/n/ryqq/songDetail/${v.mid}`,
+                            name: v.singer.map(v => v.name).join('/')
+                        }
+                    }) : []
+                }
+            } catch (e) {
+                logger.warn('获取QQ音乐数据时发生错误', e)
+            }
+            try {
+                netease = await searchXZG(ctx.http, 'NetEase Music', { name: keyword })
+            } catch (e) {
+                logger.warn('获取网易云音乐数据时发生错误', e)
+            }
 
-          let netease: SearchResponse
-          try {
-              netease = await search(ctx.http, 'NetEase Music', { name: keyword })
-          } catch (e) {
-              logger.warn('获取网易云音乐数据时发生错误', e)
-          }
+            const qqData = qq.data as SongData[]
+            const neteaseData = netease.data as SongData[]
+            if (!qqData?.length && !neteaseData?.length) return '无法获取歌曲列表，请稍后再试。'
 
-          const qqData = qq.data as SongData[]
-          const neteaseData = netease.data as SongData[]
+            const qqListText = qqData?.length ? formatSongList(qqData, 'QQ Music', 0) : '<b>QQ Music</b>: 无法获取歌曲列表'
+            const neteaseListText = neteaseData?.length ? formatSongList(neteaseData, 'NetEase Music', qqData?.length ?? 0) : '<b>NetEase Music</b>: 无法获取歌曲列表'
 
-          const qqListText = qqData?.length ? formatSongList(qqData, 'QQ Music', 0) : '<b>QQ Music</b>: 无法获取歌曲列表'
-          const neteaseListText = neteaseData?.length ? formatSongList(neteaseData, 'NetEase Music', qqData?.length ?? 0) : '<b>NetEase Music</b>: 无法获取歌曲列表'
-          const songListText = `${qqListText}<br /><br />${neteaseListText}`
+            const listText = `${qqListText}<br /><br />${neteaseListText}`
+            const exitCommands = cfg.exitCommand.split(/[,，]/).map(cmd => cmd.trim())
+            const exitCommandTip = cfg.menuExitCommandTip ? `退出选择请发[${exitCommands}]中的任意内容<br /><br />` : ''
 
-          
-         
+            let quoteId = session.messageId
 
-          if (!qqData?.length && !neteaseData?.length) return '无法获取歌曲列表，请稍后再试。'
+            if (cfg.imageMode) {
+                const imageBuffer = await generateSongListImage(ctx.puppeteer, listText, cfg)
+                const payload = [
+           
+                    h.image(imageBuffer, 'image/png'),
+                    h.text(`${exitCommandTip.replaceAll('<br />', '\n')}请在 `),
+                    h('i18n:time', { value: cfg.waitTimeout }),
+                    h.text('内，\n'),
+                    h.text('输入歌曲对应的序号')
+                ]
+                const msg = await session.send(payload)
+                quoteId = msg.at(-1)
+            } else {
+                const msg = await session.send( listText + `<br /><br />${exitCommandTip}请在 <i18n:time value=${cfg.waitTimeout}/>内，<br />输入歌曲对应的序号`)
+                quoteId = msg.at(-1)
+            }
 
-          
-          if (cfg.imageMode) {
-              const imageBuffer = await generateSongListImage(ctx.puppeteer, songListText, cfg)
-              await session.send(h.image(imageBuffer, 'image/png') + `${exitCommandTip}请在${waitTimeInSeconds}秒内，<br />输入歌曲对应的序号`)
-          } else {
-              await session.send(songListText + `<br /><br />${exitCommandTip}请在${waitTimeInSeconds}秒内，<br />输入歌曲对应的序号`)
-          }
+            const input = await session.prompt((session) => {
+                quoteId = session.messageId
+                return h.select(session.elements, 'text').toString()
+            }, { timeout: cfg.waitTimeout })
 
-          const input = await session.prompt(cfg.waitTimeout)
-          if (!input) return '输入超时，已取消点歌。'
-          if (exitCommands.includes(input)) {
-              return '已退出歌曲选择。'
-          }
+            if (isNullable(input)) return `输入超时，已取消点歌。`
+            if (exitCommands.includes(input)) {
+                return `已退出歌曲选择。`
+            }
 
-          const num = +input
-          if (Number.isNaN(num) || num < 1 || num > (qqData?.length ?? 0) + (neteaseData?.length ?? 0)) {
-              return '输入的序号错误，已退出歌曲选择。'
-          }
+            const serialNumber = +input
+            if (Number.isNaN(serialNumber) || serialNumber < 1 || serialNumber > (qqData?.length ?? 0) + (neteaseData?.length ?? 0)) {
+                return `序号输入错误，已退出歌曲选择。`
+            }
 
-          const songData: SongData[] = []
-    if (qqData) {
-    songData.push(...qqData)
-    }
-    if (neteaseData) {
-    songData.push(...neteaseData)
-    }
-    let platform: Platform, songid: number
-    const selected = songData[num - 1]
-    if (selected.songurl.includes('163.com')) {
-    platform = 'NetEase Music'
-    songid = selected.id
-    }
-    if (selected.songurl.includes('qq.com')) {
-    platform = 'QQ Music'
-    songid = selected.songid
-    }
-    if (!platform) return '获取歌曲失败。'
-    const song = await search(ctx.http, platform, { songid })
-    if (song.code === 0) {
-    const data = song.data as SongData
+            const songData: SongData[] = []
+            if (qqData?.length) {
+                songData.push(...qqData)
+            }
+            if (neteaseData?.length) {
+                songData.push(...neteaseData)
+            }
+
+            let platform: Platform, songid: number
+            const selected = songData[serialNumber - 1]
+            if (selected.songurl.includes('163.com')) {
+                platform = 'NetEase Music'
+                songid = selected.id
+            }
+            if (selected.songurl.includes('qq.com')) {
+                platform = 'QQ Music'
+                songid = selected.songid
+            }
+            if (!platform) return `获取歌曲失败。`
+            const song = await searchXZG(ctx.http, platform, { songid })
+            if (song.code === 0) {
+                const data = song.data as SongData
     try {
       const songDetails = [
       `歌曲：${data.songname}`,
