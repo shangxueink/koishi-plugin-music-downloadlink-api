@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-music-downloadlink-api",
-  "description": "search and provide song download links for QQ Music and NetEase Music platform",
-  "version": "1.1.0",
+  "description": "/*音乐下载*/🎵搜索音乐资源🤩提供QQ、网易云平台的音乐下载，付费的也可以欸？[点我查看使用方法](https://www.npmjs.com/package/koishi-plugin-music-downloadlink-api)",
+  "version": "1.1.1",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
@@ -9,6 +9,7 @@
     "dist"
   ],
   "license": "MIT",
+  "scripts": {},
   "keywords": [
     "chatbot",
     "koishi",
@@ -16,6 +17,7 @@
     "music"
   ],
   "peerDependencies": {
-    "koishi": "^4.16.6"
+    "koishi": "^4.15.0",
+    "koishi-plugin-puppeteer": "^3.7.3"
   }
 }
